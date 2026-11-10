@@ -1,4 +1,4 @@
-# PharmCore 1.2 — Expanded, Local-first Pharmacology Study Dashboard
+# PharmCore 1.3 — No-Giveaway Quizzes, Drug Name Stems & Attending Drills
 
 PharmCore is a static progressive web app (PWA) for clinical pharmacology learning. The same site works in a desktop browser and on an iPhone home screen. There are **no user accounts, cloud databases, servers receiving quiz history, subscriptions, or automatic cross-device synchronization**.
 
@@ -9,7 +9,7 @@ PharmCore is a static progressive web app (PWA) for clinical pharmacology learni
 - 554 built-in medications, including monoclonal antibodies, fusion proteins, immune-modulating biologics, recombinant treatments, oncology agents and medications across all nine rotations with rotation tags, priority tiers, indications and concise class-level knowledge summaries.
 - Nine rotation selections: Family Medicine, Pediatrics, General Surgery, Surgical Specialties, Psychiatry, outpatient IM, inpatient IM, OB/GYN and Anesthesia.
 - Twelve selectable knowledge dimensions: classification, mechanism, indications, contraindications/precautions, dosing, adverse effects, interactions, monitoring, pharmacokinetics, special populations, toxicity/reversal, and clinical decisions.
-- about 5,390 question prompts: many automatically assembled from structured teaching facts, **12 source-linked dosing scenarios**, and **18 separately authored clinical vignettes**. The number of prompts does **not** mean there are 1,255 independently physician-reviewed facts.
+- 5,363 standard quiz prompts: many automatically assembled from structured teaching facts, **12 source-linked dosing scenarios**, and **18 separately authored clinical vignettes**. The number of prompts does **not** imply individually clinician-reviewed questions.
 - Quiz options: mixed, rapid recall, clinical cases, dosing; adaptive, high-yield, new and random prioritization; 10/20/40/all questions; practice (immediate per-option explanation) or exam (feedback at end).
 - Both class-to-drug and drug-to-class directions.
 - **Pharmacology deep dives with each answer**: detailed receptor/molecular targets and downstream biochemical signaling, patient-centered implications and drug-name stem clues where supported. Each option (right or wrong) includes expanded reasoning. Mechanistic teaching details are more developed for selected high-yield classes and biologics; other records use their existing class summary. Not independently clinician-reviewed.
@@ -49,10 +49,50 @@ Then open `http://localhost:8000/`. This is **not** accessible from your iPhone 
 
 1. Open **Overview** and choose the current rotation from the sidebar.
 2. Click **Quiz builder** and select any number of specialties, knowledge categories, drug priority tiers, and question settings.
-3. Take a quiz. In practice mode, each answer immediately reveals whether you are right/wrong, with expanded explanations for **all four** answer choices, target/pathway teaching, clinical effects, and a verified name-stem clue when one is available. Select Again / Hard / Good / Easy after each question to influence review spacing.
+3. Take a quiz. In practice mode, each answer immediately reveals whether you are right/wrong, with expanded explanations for **all four** answer choices, target/pathway teaching, clinical effects, and a drug-name family/stem cue (with class comparisons and important exceptions). Select Again / Hard / Good / Easy after each question to influence review spacing.
 4. Use **Drug library** to search medications, bookmark a drug, record a personal learning note, add/edit your own drug, or mark it as **seen on rotation**.
 5. Use **Due for review** to revisit scheduled drug–concept combinations.
 6. Use **My progress** to view answers, accuracy, coverage and specialty performance.
+
+## New in v1.3: attending drill and improved questions
+
+### Questions without obvious giveaways
+
+- All standard drug-fact mechanisms, adverse effects, interactions, monitoring, pharmacokinetics, contraindication and toxicity questions now ask about the **named drug**, without first revealing its class.
+- The pre-answer quiz heading no longer exposes the related medicine in a clinical vignette or the answer to a reverse-class question.
+- Tautological prompts (for example, asking which drug is in a class label that already contains that drug's name) have been excluded from the bank.
+- One authored lithium/thiazide interaction vignette was rewritten to avoid giving the answer in the prompt.
+- `audit-questions.cjs` (run with `node audit-questions.cjs` if you want) checks every generated standard prompt and every generated attending stage for exact-answer leaks and duplicate choices. Its result is **0 detected structural leaks across 5,363 standard and 5,632 attending-stage prompts**. Automated checking does not guarantee the absence of subtle contextual hints.
+
+### Name-family recognition rather than speculative etymology
+
+The explanation panel now shows a **drug-name stem or useful class-family comparison**:
+
+- `-dipine` → dihydropyridine calcium-channel blockers (amlodipine, nifedipine).
+- `-pril` → ACE inhibitors; `-sartan` → angiotensin II AT1-receptor blockers.
+- `-xaban` → oral direct factor Xa inhibitors.
+- `-gliflozin` → SGLT2 inhibitors; `-gliptin` → DPP-4 inhibitors.
+- Legacy `-mab` antibody names can carry older structure/origin infixes, e.g. `-ximab`, `-zumab`, `-umab`. The WHO 2022 system introduced `-tug`, `-bart`, `-ment`, and `-mig` for newer antibody INNs.
+- **Naming traps are explained**: tacrolimus is a calcineurin inhibitor despite ending in `-rolimus`; sirolimus/everolimus inhibit mTOR. Aripiprazole is not a proton-pump inhibitor despite an apparent `-prazole` substring.
+
+When there is no defensible class-specific shared stem, PharmCore explains the class's name-family or gives a comparison rather than inventing a false etymology.
+
+Primary nomenclature references: https://www.ama-assn.org/about/united-states-adopted-names-usan/united-states-adopted-names-approved-stems and https://www.who.int/publications/m/item/inn-22-542 .
+
+### Attending drill (separate study mode)
+
+1. Open **Attending drill** from the sidebar or Quiz builder. Search for any medicine, including a drug you added. You can choose the current rotation or all specialties.
+2. Click **Start drill**. All questions remain on that drug. The drill starts with class recognition and mechanism, then proceeds toward therapeutic role, adverse effects, contraindications, interactions, monitoring, pharmacokinetics, special populations, toxicity, and an integrated follow-up decision.
+3. After a **correct** answer, read the explanation, then click **Next challenge**. After your **first wrong** answer, the drill **stops immediately**, displaying all answer explanations, the pharmacology deep dive and your level reached.
+4. Choose **Retry this drug**, **Full drill review**, or **Choose another drug**. Attempts and concept review scheduling save locally as usual.
+
+Each medicine has **up to 11 levels**, depending on what information is present. Across the built-in drug set this produces 5,632 drill-stage prompts, assembled from the existing class-level educational records. These are deliberately progressive but not 5,632 independently clinician-authored patient vignettes. No unsourced dose modification questions are created.
+
+### Updating your existing GitHub Pages installation
+
+**Before updating**, export a JSON backup on each device you use. Replace the existing deployed files with the package contents, keeping your **same GitHub Pages URL**. Wait for GitHub Pages deployment, then close/reopen or reload the desktop site and iPhone home-screen app (you may need a second reload for the updated service worker cache). Your per-device study history is separate from the website files and should remain, provided the origin and storage context stay unchanged.
+
+Do not copy exported progress files into a public GitHub repository; those JSON backups can include your study notes.
 
 ## Export, import and manual sync
 
@@ -78,6 +118,7 @@ PharmCore is a **student-facing educational prototype, not a prescribing or poin
 - Authored vignettes are curated teaching examples and are not designed to substitute for formal shelf exam question banks.
 - Sources include DailyMed (https://dailymed.nlm.nih.gov/dailymed/), Drugs@FDA (https://www.accessdata.fda.gov/scripts/cder/daf/), RxNorm (https://www.nlm.nih.gov/research/umls/rxnorm/) and CDC clinical guidance (https://www.cdc.gov/).
 - The app does not automatically update labeling or guidelines, and it does not query an external AI or medical data API.
+- **Question QA:** `audit-questions.cjs` tests the generated standard and attending questions for verbatim answer-in-stem leakage, tautological reverse-class answers, duplicate options, and class names that reveal mechanism answers. This structural audit passes. It cannot identify all conceptual hints, prove every distractor is clinically impossible, or substitute for pharmacist/clinician review.
 
 ## App files
 
@@ -91,6 +132,7 @@ PharmCore is a **student-facing educational prototype, not a prescribing or poin
 | `manifest.webmanifest` | Home screen / installed PWA metadata |
 | `icon-192.png`, `icon-512.png` | PWA home screen icons |
 | `README.md` | Setup and usage instructions |
+| `audit-questions.cjs` | Optional automated question integrity audit (requires Node.js) |
 
 ### Updating later
 
@@ -98,11 +140,11 @@ Edit medication data and/or application source, upload updated files to the GitH
 
 ---
 
-PharmCore 1.0 · Educational use only · Local-first data design.
+PharmCore 1.3 · Educational use only · Local-first data design.
 
-## v1.2 update: applying to an existing installation
+## v1.3 update: applying to an existing installation
 
-If you already published PharmCore to GitHub Pages, replace/update the static website files with this package **in the same repository and at the same website URL**. Add the new `expanded-library.js` and `learning.js` files along with the modified files. The service worker cache version has been incremented. After publishing, reload the website (and the installed home-screen app), potentially closing and reopening it once; existing browser study data remains separate from these published assets. **Export a backup before updating**. If you change the host URL, origin, browser or iPhone installation, manually import your backup to restore progress.
+If you already published PharmCore to GitHub Pages, replace/update the static website files with this package **in the same repository and at the same website URL**. Add the new `expanded-library.js` and `learning.js` files along with the modified files. The service worker cache version has been incremented to `pharmcore-v13-20261109`. After publishing, reload the website (and the installed home-screen app), potentially closing and reopening it once; existing browser study data remains separate from these published assets. **Export a backup before updating**. If you change the host URL, origin, browser or iPhone installation, manually import your backup to restore progress.
 
 ## Terminology and naming caveats
 

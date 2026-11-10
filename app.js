@@ -67,6 +67,7 @@ let state=defaultState(), view='dashboard', selectedDrug=null, drugEditor=null, 
 let config={specialties:['family'],categories:['classification','mechanism','indications','contraindications','adverse','monitoring'],tiers:[1,2],mode:'mixed',length:20,priority:'adaptive',exam:false};
 let libraryFilter={search:'',specialty:'all',tier:'all',saved:false,custom:false};
 let reviewFilter='all';
+let attendingSearch='',attendingFilter='current';
 let importCandidate=null;
 const storage={type:'Initializing',db:null,writeQueue:Promise.resolve(),async init(){
  if(!('indexedDB'in window)){this.type='LocalStorage fallback';return;}
@@ -138,14 +139,40 @@ const CASE_DISTRACTOR_REASONS={
 // Terminology popovers are authored by PharmCore, not provided by AMBOSS.
 let selectedTerm=null;
 const naturalDrug=(d)=>d?.name||'This medication';
+function matchNameRule(d){
+ if(!d)return null;
+ const token=d.name.trim().split(/[\s/(]+/)[0];
+ return NAME_RECOGNITION_RULES.find(rule=>{
+  if(!rule.rx.test(token))return false;
+  // New antibody stems are antibody family indicators, but never claim a specific antigen.
+  if(rule.classes.length===0)return /^(mab-|cgrp-mab|rsv-mab|rankl$|emicizumab$)/.test(d.cls)||d.cls==='mab-vegf-eye';
+  return rule.classes.includes(d.cls);
+ })||null;
+}
 function namingExplanation(d){
  if(!d)return '';
- if(d.details?.naming)return d.details.naming;
- const part=d.name.split(/[\s/(]+/)[0];
- const match=NAMING_STEMS.find(([,re])=>re.test(part));
- if(match&&((match[0]==='-statin'&&d.cls==='statin')||(match[0]==='-prazole'&&d.cls==='ppi')||(!['-statin','-prazole'].includes(match[0]))))return `Name clue (${match[0]}): ${match[2]} A name stem points to a family, not proof of a specific target, clinical indication, or safety profile.`;
- return `Naming note: No reliable standardized pharmacologic stem has been identified here for ${d.name}. The name should not be reverse-engineered into a mechanism without a verified nomenclature source.`;
+ if(d.details?.naming)return `Your name pattern note: ${d.details.naming}`;
+ const c=getProfile(d),own=matchNameRule(d);
+ const source='Pattern source: USAN / WHO international nonproprietary naming conventions.';
+ if(own){
+  const more=(own.stem.includes('mab')||['-tug','-bart','-ment','-mig'].includes(own.stem))
+   ? ' The antibody suffix does not identify its molecular antigen or signal-transduction target. WHO replaced the general -mab suffix for newly assigned antibody names with -tug, -bart, -ment and -mig; many existing drugs retain -mab.'
+   : '';
+  return `Recognize ${own.stem}: this pattern suggests ${own.meaning}. Examples: ${own.examples}. ${d.name} is classified as ${c.name}.${more} ${source}`;
+ }
+ // Class-level contrast: e.g. a biologic or calcium-channel blocker without a regular suffix.
+ const classMates=DRUGS.filter(x=>x.id!==d.id&&x.cls===d.cls);
+ const patternedMate=classMates.map(x=>({drug:x,rule:matchNameRule(x)})).find(x=>x.rule);
+ if(patternedMate)return `Class naming cue: ${patternedMate.drug.name} uses ${patternedMate.rule.stem} (${patternedMate.rule.meaning}). ${d.name} is also a ${c.name}, but does not carry that same cue. ${source}`;
+ if(d.cls==='ccb-ndhp')return `${d.name} and the other non-dihydropyridine calcium-channel blockers (e.g., verapamil/diltiazem) do not share the -dipine suffix. Compare that with amlodipine/nifedipine: -dipine identifies the dihydropyridine subgroup. The drugs differ in cardiac vs vascular effects.`;
+ if(d.cls==='calcineurin'&&/rolimus$/i.test(d.name))return `Name trap: ${d.name} ends in -rolimus, but is a calcineurin inhibitor, not an mTOR inhibitor. Sirolimus and everolimus inhibit mTOR. Memorize this exception rather than overgeneralizing from the ending.`;
+ if(d.cls.startsWith('mab-')||d.cls==='cgrp-mab')return `Biologic recognition: established antibody drugs often end in -mab, while certain fusion proteins may end in -cept. The ending can identify the modality, not its antigen; for ${d.name} learn its actual pharmacologic class (${c.name}). Newer WHO antibody endings include -tug, -bart, -ment and -mig.`;
+ const fellows=classMates.slice(0,3).map(x=>x.name);
+ return fellows.length?
+  `Name-family comparison: ${d.name} and ${fellows.join(' / ')} belong to ${c.name}. These examples do not share a dependable class-specific name stem; recognize them by their target, not by a coincidental ending.`:
+  `Name-family recognition: ${d.name} is classified as ${c.name}. Its best memory cue is its molecular target/mechanism, since an unambiguous class suffix is not established for this particular name.`;
 }
+
 function pathwayFor(d){
  if(!d)return '';
  const p=getProfile(d);
@@ -233,6 +260,8 @@ function generateQuestions(){
   for(const cat of ['classification','mechanism','indications','contraindications','adverse','interactions','monitoring','pharmacokinetics','populations','toxicity']){
    const id=`fact-${d.id}-${cat}`;let stem,correct,alts=[];
    if(cat==='indications'&&!d.indications.length)continue;
+   // Avoid tautological drug-to-class questions when class label contains drug name.
+   if(cat==='classification'&&profile.name.toLowerCase().includes(d.name.toLowerCase()))continue;
    if(!['classification','indications'].includes(cat)&&!profile[FIELD_KEY[cat]||cat])continue;
    if(cat==='classification'){
     stem=`Which pharmacologic class best describes ${d.name}?`;correct=profile.name;
@@ -242,7 +271,7 @@ function generateQuestions(){
     correct=d.indications[0];
     alts=shuffleSeeded(DRUGS.filter(x=>x.cls!==d.cls&&!x.indications.includes(correct)&&!x.indications.some(y=>d.indications.includes(y))),id).filter((x,i,a)=>a.findIndex(y=>y.indications[0]===x.indications[0])===i).slice(0,3).map(x=>({text:x.indications[0],contrastDrug:x.id,why:`This is listed for ${x.name}; it is not the indication highlighted in ${d.name}'s study profile.`}));
    }else{
-    stem=d.custom?`For ${d.name}, which statement ${FIELD_LABELS[cat]}?`:`For the ${profile.name} class (which includes ${d.name}), which statement ${FIELD_LABELS[cat]}?`;
+    stem=`For ${d.name}, which statement ${FIELD_LABELS[cat]}?`;
     correct=profile[FIELD_KEY[cat]||cat];
     alts=shuffleSeeded(classes.filter(c=>c.id!==d.cls&&c[FIELD_KEY[cat]||cat]&&c[FIELD_KEY[cat]||cat]!==correct),id).slice(0,3).map(c=>({text:c[FIELD_KEY[cat]||cat],contrastClass:c.id,why:`This is a teaching point for ${c.name}. The key ${profile.name} concept is: ${correct}`}));
    }
@@ -254,6 +283,8 @@ function generateQuestions(){
  }
  for(const c of classes){
   const meds=DRUGS.filter(d=>d.cls===c.id);if(!meds.length)continue;const d=meds[0],id=`reverse-class-${c.id}`;
+  // Example: "Mood stabilizer (lithium)" must never prompt an answer of "Lithium".
+  if(c.name.toLowerCase().includes(d.name.toLowerCase()))continue;
   const others=shuffleSeeded(DRUGS.filter(x=>x.cls!==c.id),id).filter((x,i,a)=>a.findIndex(y=>y.cls===x.cls)===i).slice(0,3);
   const opts=choicesFromAnswer(id,d.name,others.map(x=>({text:x.name,contrastDrug:x.id,why:`${x.name} is classified as ${getProfile(x).name}, not ${c.name}.`})));
   opts.find(o=>o.correct).why=`${d.name} is an example of a ${c.name}.`;
@@ -266,6 +297,73 @@ function generateQuestions(){
  for(const d of CLINICAL_CASES){const medx=findDrug(d.drug);const opts=shuffleSeeded(d.options.map((text,index)=>({text,correct:index===d.correct,why:index===d.correct?d.teaching:(CASE_DISTRACTOR_REASONS[d.id]?.[index]||`This does not address the mechanism in the vignette. ${d.teaching}`)})),d.id);
   appendQuestion({id:d.id,drugId:medx.id,category:'clinical',type:'clinical',specialties:d.specialties,tiers:[medx.tier],stem:d.stem,options:opts,teaching:d.teaching,source:d.source,sourceLabel:d.sourceLabel});
  }
+}
+
+
+// Progressive bedside-style oral board drill. It stays on ONE medication until the
+// first miss and generates questions from the existing structured educational record.
+// Complex cases are class-level teaching scenarios, NOT individual prescribing advice.
+function attendingAltProfiles(d,key,count=3){
+ const right=getProfile(d)[key];
+ const others=[...Object.values(C),...(state.customDrugs||[]).filter(x=>!C[x.cls]).map(getProfile)].filter(c=>c.id!==d.cls&&c[key]&&c[key]!==right);
+ const seen=new Set();return shuffleSeeded(others,`att-${d.id}-${key}`).filter(c=>{const x=c[key];if(seen.has(x))return false;seen.add(x);return true;}).slice(0,count);
+}
+function makeAttendingQ(d,stage,category,stem,answer,altValues,teaching,sourceSuffix=''){ 
+ const id=`attend-${d.id}-${stage.toLowerCase().replace(/[^a-z0-9]+/g,'-')}`;
+ const alts=altValues.slice(0,3).map(x=>({text:x.text,why:x.why,contrastClass:x.cls||null}));
+ if(!answer||alts.length<3||new Set([answer,...alts.map(x=>x.text)]).size<4)return null;
+ const opts=choicesFromAnswer(id,answer,alts);
+ opts.forEach(o=>{if(o.correct)o.why=teaching;});
+ const q={id,drugId:d.id,category,type:category==='clinical'?'clinical':'rapid',specialties:d.specialties,tiers:[d.tier],attendingStage:stage,stem,options:opts,teaching,source:d.referenceUrl||`https://dailymed.nlm.nih.gov/dailymed/search.cfm?query=${encodeURIComponent(d.name)}`,sourceLabel:d.custom?'Custom user-authored profile — independently verify':'DailyMed — verify current drug labeling',unreviewed:d.custom};
+ deepenQuestion(q);qIndex[id]=q;return q;
+}
+function makeAttendingPair(d,stage,category,stem,key,teaching){
+ const answer=getProfile(d)[key];
+ if(!answer)return null;
+ const others=attendingAltProfiles(d,key);
+ return makeAttendingQ(d,stage,category,stem,answer,others.map(x=>({text:x[key],why:`This describes ${x.name}, not the recorded ${getProfile(d).name} teaching concept.`,cls:x.id})),teaching||`For ${d.name} (${getProfile(d).name}): ${answer}`);
+}
+function createAttendingSequence(drugId){
+ const d=findDrug(drugId);if(!d)return [];
+ const p=getProfile(d),ind=d.indications[0]||'the stated treatment indication';
+ const out=[];const add=q=>{if(q)out.push(q.id)};
+ // Level 1–3: names/classes and exact pharmacologic molecular basis.
+ const clsQ=qIndex[`fact-${d.id}-classification`];if(clsQ){const q={...clsQ,id:`attend-${d.id}-01-recognition`,attendingStage:'Recognition',options:clsQ.options.map(o=>({...o}))};qIndex[q.id]=q;add(q);}
+ add(makeAttendingPair(d,'Molecular mechanism','mechanism',`You are asked about ${d.name} on rounds. Which molecular action most accurately explains its pharmacology?`,'mechanism',`Mechanism: ${p.mechanism||'Not entered'}. Target context: ${pathwayFor(d)}`));
+ const indOpts=shuffleSeeded(DRUGS.filter(x=>x.cls!==d.cls&&!x.indications.includes(ind)&&x.indications[0]),`att-ind-${d.id}`).filter((x,i,a)=>a.findIndex(y=>y.indications[0]===x.indications[0])===i).slice(0,3);
+ if(d.indications.length&&indOpts.length===3)add(makeAttendingQ(d,'Therapeutic role','indications',`In which of these settings would ${d.name} have a recognized therapeutic role?`,ind,indOpts.map(x=>({text:x.indications[0],why:`${x.indications[0]} is a teaching indication for ${x.name}. It is not the targeted use listed here.`,cls:x.cls})),`A relevant therapeutic use of ${d.name} is ${ind}. Its action: ${p.mechanism}`));
+ add(makeAttendingPair(d,'Recognizing adverse effects','adverse',`A patient receiving ${d.name} reports a new symptom after starting therapy. Which adverse-effect pattern should be considered in the medication assessment?`,'adverse',`Recognize adverse effects of ${d.name}: ${p.adverse}. Mechanistic connection: ${pathwayFor(d)}`));
+ add(makeAttendingPair(d,'Pre-treatment safety','contraindications',`You are considering ${d.name} for a patient with ${ind}. Which history or clinical condition most deserves review BEFORE starting therapy?`,'caution',`Safety review for ${d.name}: ${p.caution}. Distinguish a contraindication from a precaution by current labeling.`));
+ add(makeAttendingPair(d,'Medication reconciliation','interactions',`The patient taking ${d.name} starts an additional medication. Which interaction pattern is most important to anticipate?`,'interactions',`For ${d.name}, review: ${p.interactions}. The interaction may be pharmacokinetic or pharmacodynamic.`));
+ add(makeAttendingPair(d,'Follow-up plan','monitoring',`During follow-up for a patient using ${d.name} for ${ind}, which monitoring approach best fits its pharmacology and risks?`,'monitoring',`Monitoring for ${d.name}: ${p.monitoring}. Link this to the expected physiology and potential toxicity.`));
+ add(makeAttendingPair(d,'Disposition and formulation','pharmacokinetics',`A patient using ${d.name} has a change in organ function or formulation. Which pharmacokinetic teaching point would guide your assessment?`,'kinetics',`Pharmacokinetic context for ${d.name}: ${p.kinetics}`));
+ add(makeAttendingPair(d,'Special-population decision','populations',`You are modifying a medication plan involving ${d.name} for a patient with a complicating age, pregnancy, or organ-function issue. Which consideration is relevant?`,'populations',`Special-population issue for ${d.name}: ${p.populations}`));
+ add(makeAttendingPair(d,'Recognizing toxicity','toxicity',`A patient taking ${d.name} is now being evaluated for possible drug toxicity. Which severe complication or response principle is most relevant to this medication?`,'toxicity',`Toxicity principle for ${d.name}: ${p.toxicity}. Re-evaluate the patient's clinical stability before selecting treatment.`));
+ // Final integrative level: a mechanistic explanation AND a follow-up safety decision.
+ if(p.mechanism&&p.monitoring){
+  const answer=`Action: ${p.mechanism} Monitoring: ${p.monitoring}`;
+  const alts=attendingAltProfiles(d,'monitoring',5).filter(x=>x.mechanism&&x.monitoring).slice(0,3).map(x=>({text:`Action: ${x.mechanism} Monitoring: ${x.monitoring}`,why:`This pair describes the ${x.name} class, not ${p.name}.`,cls:x.id}));
+  add(makeAttendingQ(d,'Integrated clinical reasoning','clinical',`An attending asks you to justify using ${d.name} for ${ind} and to outline follow-up. Which paired explanation best connects its molecular mechanism to a sensible monitoring plan?`,answer,alts,`Integrate mechanism and follow-up for ${d.name}: ${answer}`));
+ }
+ return out;
+}
+function renderAttending(){
+ const term=attendingSearch.trim().toLowerCase(),list=DRUGS.filter(d=>(attendingFilter==='all'||d.specialties.includes(state.prefs.rotation))&&(!term||d.name.toLowerCase().includes(term)||getProfile(d).name.toLowerCase().includes(term))).sort((a,b)=>a.tier-b.tier||a.name.localeCompare(b.name));
+ const html=list.slice(0,40).map(d=>`<div class="attending-drug-row"><div class="attending-drug-info"><strong>${esc(d.name)}</strong><span class="small subtle">${esc(getProfile(d).name)} · Tier ${d.tier}${d.custom?' · Custom':''}</span></div><button class="btn small" data-action="attend-drug" data-id="${esc(d.id)}">Start drill ${ic('arrow','sm')}</button></div>`).join('');
+ return `${pageTitle('CLINICAL ROUNDS','Attending drill','Choose one medication. The questions start with basic recognition and progress toward molecular mechanisms, safety, monitoring, special populations, and integrated clinical decisions. One wrong answer ends the round.')}
+ <div class="card attending-guide"><div class="guide-number">01</div><div><h2>How the drill works</h2><p>One drug throughout · up to 11 progressively structured levels · detailed feedback after every answer · immediate stop on the first incorrect answer. Correct answers advance only when you select “Next challenge.”</p><p class="fineprint">Higher levels use synthesized class-level patient-care scenarios, not individually validated clinical orders. Incomplete custom drug profiles may yield fewer levels.</p></div></div>
+ <section class="card"><div class="panel-title"><h2>Choose a medication</h2><span class="tag">${list.length} matches</span></div><div class="toolbar"><label class="search-wrap">${ic('search')}<input id="attending-search" aria-label="Search a drug to drill" placeholder="Search medication or class…" value="${esc(attendingSearch)}" autocomplete="off"></label><select id="attending-filter" class="form-select" aria-label="Rotation filter"><option value="current" ${attendingFilter==='current'?'selected':''}>Current rotation · ${esc(sname(state.prefs.rotation))}</option><option value="all" ${attendingFilter==='all'?'selected':''}>All specialties</option></select></div><div id="attending-drugs">${html||'<p class="subtle">No matching medications.</p>'}</div><div class="fineprint">Showing up to 40 results. Search by name to find any drug in the library, including your own additions.</div></section>`;
+}
+function refreshAttendingDrugList(){const host=$('#attending-drugs');if(!host)return;const focused=document.activeElement;const cursor=focused?.selectionStart;const s=attendingSearch;host.innerHTML=DRUGS.filter(d=>(attendingFilter==='all'||d.specialties.includes(state.prefs.rotation))&&(!s||d.name.toLowerCase().includes(s.toLowerCase())||getProfile(d).name.toLowerCase().includes(s.toLowerCase()))).sort((a,b)=>a.tier-b.tier||a.name.localeCompare(b.name)).slice(0,40).map(d=>`<div class="attending-drug-row"><div class="attending-drug-info"><strong>${esc(d.name)}</strong><span class="small subtle">${esc(getProfile(d).name)} · Tier ${d.tier}</span></div><button class="btn small" data-action="attend-drug" data-id="${esc(d.id)}">Start drill ${ic('arrow','sm')}</button></div>`).join('')||'<p class="subtle">No matching medications.</p>';}
+function startAttending(drugId){
+ const d=findDrug(drugId);if(!d){toast('Select an available drug.');return;}
+ const qids=createAttendingSequence(drugId);if(!qids.length){toast('This drug needs more information before it can be drilled.');return;}
+ state.session={qids,idx:0,answers:[],exam:false,review:false,attending:true,drugId,stopped:false,ended:false,started:now()};selectedDrug=null;persist();go('session');
+}
+function renderAttendingStop(){
+ const s=state.session,q=qIndex[s.qids[s.idx]],ans=s.answers[s.idx],d=findDrug(s.drugId),choice=q.options[ans.chosen],correct=q.options.find(x=>x.correct);
+ return `${pageTitle('ATTENDING DRILL · STOPPED','First miss ends the round',`You reached level ${s.idx+1} of ${s.qids.length} on ${d?.name||'this medication'}. Review the answer, then start a new drill when you are ready.`)}
+ <div class="card attending-stop"><div class="negative strong">${ic('alert','sm')} Level ${s.idx+1} · ${esc(q.attendingStage||'Challenge')}</div><h2>${highlightTerms(q.stem)}</h2><div class="callout warn"><strong>Your answer:</strong> ${esc(choice?.text||'')}<div style="margin-top:8px"><strong>Correct answer:</strong> ${esc(correct?.text||'')}</div></div><p>${highlightTerms(q.teaching)}</p>${deepDiveHtml(q)}<div class="explain-list">${q.options.map((o,i)=>`<div class="explain-item ${o.correct?'correct':''}"><strong>${'ABCD'[i]}.</strong><span>${highlightTerms(o.why,{limit:14})}</span></div>`).join('')}</div><div class="divider"></div><p class="subtle small">${s.idx} consecutive correct · stopped immediately after your first incorrect answer. The attempt and review schedule are saved locally.</p><div class="row" style="flex-wrap:wrap"><button class="btn" data-action="attend-drug" data-id="${esc(s.drugId)}">Retry this drug</button><button class="btn ghost" data-action="attend-results">See full drill review</button><button class="btn ghost" data-action="nav" data-view="attending">Choose another drug</button></div></div>`;
 }
 
 function selectQuestions(opts){
@@ -300,6 +398,7 @@ function shell(content){const rotation=state.prefs.rotation;
     <div class="section-caption">Workspace</div><nav class="navlinks">
       ${navButton('dashboard','Overview','dashboard')}
       ${navButton('practice','Quiz builder','quiz')}
+      ${navButton('attending','Attending drill','stethoscope')}
       ${navButton('library','Drug library','pill')}
       ${navButton('review','Due for review','clock',dueReviews()?dueReviews():'')}
       ${navButton('analytics','My progress','chart')}
@@ -309,7 +408,7 @@ function shell(content){const rotation=state.prefs.rotation;
     <div class="side-footer"><div class="side-footer-title">${ic('database','sm')} ${esc(storage.type)} · Local only</div><p>Study history stays on this device until you export it. No account required.</p><button data-action="export">${ic('download','sm')} Export backup</button></div>
   </aside>
   <div class="main-frame">
-   <header class="topbar"><div class="row"><button class="mobile-toggle" data-action="mobile" aria-label="Toggle navigation">${ic('menu')}</button><div class="crumb">${ic('layers','sm')} PharmCore ${ic('chevron','sm')} <span>${({dashboard:'Overview',practice:'Quiz builder',library:'Drug library',review:'Reviews',analytics:'Progress',settings:'Settings',session:'Study session',results:'Quiz results'})[view]||'Overview'}</span></div></div>
+   <header class="topbar"><div class="row"><button class="mobile-toggle" data-action="mobile" aria-label="Toggle navigation">${ic('menu')}</button><div class="crumb">${ic('layers','sm')} PharmCore ${ic('chevron','sm')} <span>${({dashboard:'Overview',practice:'Quiz builder',attending:'Attending drill',library:'Drug library',review:'Reviews',analytics:'Progress',settings:'Settings',session:'Study session',results:'Quiz results'})[view]||'Overview'}</span></div></div>
     <div class="top-actions"><button class="search-top" data-action="nav" data-view="library">${ic('search','sm')} Search medications…</button><button class="top-due" data-action="nav" data-view="review">${ic('clock','sm')} ${dueReviews()} due</button></div>
    </header>
    <main class="main-content" id="content">${content}<div class="footer-note">PharmCore ${PHARMCORE_VERSION} · Educational seed content · Not for point-of-care prescribing · No patient identifiers</div></main>
@@ -360,6 +459,7 @@ function renderCheck(value,label,selected,group){return `<label class="checklabe
 function choicesButtonGroup(name,entries,selected){return `<div class="button-group">${entries.map(([key,label])=>`<button class="chip ${selected===key?'active':''}" data-action="config-single" data-name="${name}" data-value="${esc(key)}">${esc(label)}</button>`).join('')}</div>`}
 function renderPractice(){const available=availableForConfig(),total=available?(config.length?Math.min(config.length,available):available):0;
  return `${pageTitle('PRACTICE STUDIO','Build your next quiz','Select multiple specialties and pharmacology dimensions. Choose how you want to practice, and PharmCore will assemble a question set from the curated starter library.')}
+ <div class="card attending-promo"><div><span class="eyebrow">NEW · CLINICAL ROUNDS</span><h2>Attending drill · one drug, increasing difficulty</h2><p class="small subtle">Recognition → molecular action → adverse effects → contraindications → patient safety → integrated clinical decisions. First incorrect answer ends the round.</p></div><button class="btn" data-action="nav" data-view="attending">Choose a drug ${ic('arrow','sm')}</button></div>
  <div class="config-columns"><div class="builder-main">
   <section class="card"><div class="field-label-line"><div class="control-label">1. Specialties</div><div class="row"><button class="text-button" data-action="toggle-all" data-name="specialties" data-value="all">All</button><span class="subtle tiny">·</span><button class="text-button" data-action="toggle-all" data-name="specialties" data-value="none">Clear</button></div></div><div class="checkgrid">${SPECIALTIES.map(([id,name])=>renderCheck(id,name,config.specialties.includes(id),'specialties')).join('')}</div></section>
   <section class="card"><div class="field-label-line"><div class="control-label">2. Knowledge dimensions</div><div class="row"><button class="text-button" data-action="toggle-all" data-name="categories" data-value="all">All</button><span class="subtle tiny">·</span><button class="text-button" data-action="toggle-all" data-name="categories" data-value="none">Clear</button></div></div><div class="checkgrid">${CATEGORIES.map(([id,name])=>renderCheck(id,name,config.categories.includes(id),'categories')).join('')}</div><p class="fineprint" style="margin:13px 0 0">Dosing currently includes ${availableCountByCategory('dosing')} source-linked scenario questions; clinical decision-making includes ${availableCountByCategory('clinical')} authored vignettes. Most other questions are built from class-level study facts.</p></section>
@@ -371,22 +471,23 @@ function renderPractice(){const available=availableForConfig(),total=available?(
  </div></div>`;
 }
 function renderSession(){const session=state.session;if(!session||!session.qids?.length)return `${pageTitle('STUDY SESSION','No quiz in progress')}<button class="btn" data-action="nav" data-view="practice">Create a quiz</button>`;
+ if(session.attending&&session.stopped)return renderAttendingStop();
  if(session.ended||session.idx>=session.qids.length)return renderResults();
  const q=qIndex[session.qids[session.idx]];if(!q)return `<div class="banner">This saved question is no longer available. Return to the quiz builder.</div>`;
  const answered=session.answers[session.idx],n=session.qids.length,index=session.idx;
  const explanations=answered&&!session.exam?`<div class="feedback-card ${answered.correct?'':'wrong'}"><div class="feedback-head ${answered.correct?'positive':'negative'}">${ic(answered.correct?'check':'alert','sm')} ${answered.correct?'Correct answer':'Not quite — review the reasoning'}</div><div class="small" style="color:#496576">${highlightTerms(q.teaching||'Review the explanation for each option.')}</div>${deepDiveHtml(q)}<div class="explain-list">${q.options.map((o,i)=>`<div class="explain-item ${o.correct?'correct':''}"><strong>${'ABCD'[i]}.</strong><span>${highlightTerms(o.why,{limit:14})}</span></div>`).join('')}</div><div class="fineprint" style="margin-top:12px">Source: <a href="${esc(q.source)}" target="_blank" rel="noopener noreferrer">${esc(q.sourceLabel)} ${ic('external','sm')}</a></div></div>`:'';
- return `<div class="quiz-topbar"><div class="row"><button class="btn ghost small" data-action="quit-quiz">${ic('close','sm')} Exit quiz</button><span class="rotate-badge">${esc(session.exam?'Exam mode':'Practice mode')}</span></div><div class="small strong monospace">Question ${index+1} of ${n}</div></div>
- <section class="card question-card"><div class="quiz-progress"><div style="width:${Math.round(index/n*100)}%"></div></div><div class="quiz-kicker"><span class="tag t1">${esc(cname(q.category))}</span><span class="tag">${esc(findDrug(q.drugId)?.name||'Clinical pharmacology')}</span><span class="tag">${q.type==='rapid'?'Rapid recall':q.type==='dosing'?'Dosing scenario':'Clinical vignette'}</span></div>
+ return `<div class="quiz-topbar"><div class="row"><button class="btn ghost small" data-action="quit-quiz">${ic('close','sm')} Exit quiz</button><span class="rotate-badge">${esc(session.attending?`Rounds · ${findDrug(session.drugId)?.name||'Drug'}`:session.exam?'Exam mode':'Practice mode')}</span></div><div class="small strong monospace">Question ${index+1} of ${n}</div></div>
+ <section class="card question-card"><div class="quiz-progress"><div style="width:${Math.round(index/n*100)}%"></div></div><div class="quiz-kicker"><span class="tag t1">${esc(cname(q.category))}</span><span class="tag">${session.attending?esc(`Level ${index+1} · ${q.attendingStage||'Challenge'}`):'No hints · recall first'}</span><span class="tag">${session.attending?'Attending drill':q.type==='rapid'?'Rapid recall':q.type==='dosing'?'Dosing scenario':'Clinical vignette'}</span></div>
  <h2 class="question-title">${highlightTerms(q.stem)}</h2><div class="options">${q.options.map((o,i)=>`<button class="option ${answered&&!session.exam?(o.correct?'correct':i===answered.chosen?'incorrect':'dim'):''}" data-action="answer" data-index="${i}" ${answered?'disabled':''}><span class="opt-letter">${'ABCD'[i]}</span><span>${esc(o.text)}</span></button>`).join('')}</div>
  ${answered&&session.exam?`<div class="callout" style="margin-top:16px">${ic('check','sm')} Answer saved. Feedback and explanations will appear at the end of the exam.</div>`:''}
  ${explanations}
- ${answered&&!session.exam?`<div class="confidence"><div class="control-label">How well did you know this?</div><div class="small subtle">Your choice adjusts when this drug–concept pair is reviewed again.</div><div class="button-group">${[['again','Again'],['hard','Hard'],['good','Good'],['easy','Easy']].map(([id,label])=>`<button class="chip ${answered.confidence===id?'active':''}" data-action="confidence" data-value="${id}">${label}</button>`).join('')}</div></div>`:''}
- </section><div class="quiz-bottom"><div class="fineprint">${session.exam?'Your answers are saved locally; detailed review comes after submission.':'Practice questions show feedback immediately. Press 1–4 to select an answer.'}</div>${answered?`<button class="btn" data-action="next-question">${index===n-1?'Finish quiz':'Next question'} ${ic('arrow','sm')}</button>`:''}</div>`;
+ ${answered&&!session.exam&&!session.attending?`<div class="confidence"><div class="control-label">How well did you know this?</div><div class="small subtle">Your choice adjusts when this drug–concept pair is reviewed again.</div><div class="button-group">${[['again','Again'],['hard','Hard'],['good','Good'],['easy','Easy']].map(([id,label])=>`<button class="chip ${answered.confidence===id?'active':''}" data-action="confidence" data-value="${id}">${label}</button>`).join('')}</div></div>`:''}
+ </section><div class="quiz-bottom"><div class="fineprint">${session.attending?'Keep going until your first miss. All answers and explanations are saved.':session.exam?'Your answers are saved locally; detailed review comes after submission.':'Practice questions show feedback immediately. Press 1–4 to select an answer.'}</div>${answered?`<button class="btn" data-action="next-question">${session.attending?(index===n-1?'Finish rounds':'Next challenge'):(index===n-1?'Finish quiz':'Next question')} ${ic('arrow','sm')}</button>`:''}</div>`;
 }
 function renderResults(){const ss=state.session;if(!ss)return '';const ans=ss.answers.filter(Boolean),correct=ans.filter(a=>a.correct).length;
  return `${pageTitle('SESSION COMPLETE','Quiz results','Every answer is stored locally; review the rationales below to reinforce difficult concepts.')}
- <div class="card result-card"><div class="between" style="flex-wrap:wrap"><div><div class="eyebrow">YOUR SCORE</div><div class="result-big monospace">${ans.length?Math.round(correct/ans.length*100):0}%</div><div class="small subtle">${correct} correct out of ${ans.length} questions · ${ss.exam?'Exam':'Practice'} mode</div></div><div class="iconbox" style="width:75px;height:75px;border-radius:21px">${ic('chart','lg')}</div></div>
- <div class="divider"></div><div class="row" style="flex-wrap:wrap"><button class="btn" data-action="nav" data-view="practice">Build another quiz ${ic('arrow','sm')}</button><button class="btn ghost" data-action="start-reviews">Review due concepts</button><button class="btn ghost" data-action="export">Export progress</button></div>
+ <div class="card result-card"><div class="between" style="flex-wrap:wrap"><div><div class="eyebrow">YOUR SCORE</div><div class="result-big monospace">${ans.length?Math.round(correct/ans.length*100):0}%</div><div class="small subtle">${ss.attending?`${correct} consecutive correct · ${ss.stopped?'Stopped at first miss':`Cleared ${ss.qids.length} levels`}`:`${correct} correct out of ${ans.length} questions · ${ss.exam?'Exam':'Practice'} mode`}</div></div><div class="iconbox" style="width:75px;height:75px;border-radius:21px">${ic('chart','lg')}</div></div>
+ <div class="divider"></div><div class="row" style="flex-wrap:wrap">${ss.attending?`<button class="btn" data-action="attend-drug" data-id="${esc(ss.drugId)}">Retry this drug ${ic('arrow','sm')}</button><button class="btn ghost" data-action="nav" data-view="attending">Choose another drug</button>`:`<button class="btn" data-action="nav" data-view="practice">Build another quiz ${ic('arrow','sm')}</button>`}<button class="btn ghost" data-action="start-reviews">Review due concepts</button><button class="btn ghost" data-action="export">Export progress</button></div>
  <div class="divider"></div><h2>Question-by-question review</h2>
  ${ss.qids.map((id,i)=>{const q=qIndex[id],a=ss.answers[i];if(!q||!a)return '';return `<details class="review-answer"><summary><span class="${a.correct?'positive':'negative'}">${a.correct?'✓':'✕'}</span> ${i+1}. ${esc(q.stem.slice(0,115))}${q.stem.length>115?'…':''}</summary><div class="small subtle" style="margin:8px 0">${esc(cname(q.category))} · ${esc(findDrug(q.drugId)?.name||'')}</div>${q.options.map(o=>`<div class="optionline ${o.correct?'good':''}">${o.correct?'✓ ':'• '}${esc(o.text)}${o.correct?' — correct':''}</div>`).join('')}<p>${esc(q.teaching)}</p>${deepDiveHtml(q)}<div class="explain-list">${q.options.map((o,i)=>`<div class="explain-item ${o.correct?'correct':''}"><strong>${'ABCD'[i]}.</strong><span>${highlightTerms(o.why,{limit:14})}</span></div>`).join('')}</div><p class="fineprint">Reference: <a href="${esc(q.source)}" target="_blank" rel="noopener noreferrer">${esc(q.sourceLabel)}</a></p></details>`}).join('')}
  </div>`;
@@ -408,7 +509,7 @@ function refreshLibraryGrid(){const grid=$('#drug-grid');if(!grid)return;const m
 function renderDrugModal(){const d=findDrug(selectedDrug);if(!d)return '';const p=getProfile(d),saved=state.bookmarks.includes(d.id),enc=state.encounters[d.id];
  const fields=[['Mechanism',p.mechanism],['Indications',d.indications.join('; ')],['Contraindications & precautions',p.caution],['Adverse effects',p.adverse],['Interactions',p.interactions],['Monitoring',p.monitoring],['Pharmacokinetics',p.kinetics],['Special populations',p.populations],['Toxicity & reversal',p.toxicity]];
  return `<div class="modal-backdrop" id="drug-overlay"><div class="modal" role="dialog" aria-modal="true" aria-label="${esc(d.name)} medication profile"><div class="modal-head"><div><div class="eyebrow">TIER ${d.tier} · ${esc(p.name)}</div><h2>${esc(d.name)}</h2><p class="small subtle">${esc(d.specialties.map(sname).join(' · '))}</p></div><button class="close" data-action="close-modal" aria-label="Close">${ic('close')}</button></div>
- <div class="pillrow" style="margin-bottom:17px"><button class="btn ${saved?'soft':'ghost'} small" data-action="bookmark" data-id="${d.id}">${ic('heart','sm')} ${saved?'Bookmarked':'Bookmark drug'}</button><button class="btn ${enc?'soft':'ghost'} small" data-action="encounter" data-id="${d.id}">${ic('stethoscope','sm')} ${enc?'Seen on rotation ✓':'Mark seen on rotation'}</button><button class="btn small" data-action="practice-drug" data-id="${d.id}">Practice this drug ${ic('arrow','sm')}</button>${d.custom?`<button class="btn ghost small" data-action="edit-drug" data-id="${d.id}">Edit my drug</button>`:''}</div>
+ <div class="pillrow" style="margin-bottom:17px"><button class="btn ${saved?'soft':'ghost'} small" data-action="bookmark" data-id="${d.id}">${ic('heart','sm')} ${saved?'Bookmarked':'Bookmark drug'}</button><button class="btn ${enc?'soft':'ghost'} small" data-action="encounter" data-id="${d.id}">${ic('stethoscope','sm')} ${enc?'Seen on rotation ✓':'Mark seen on rotation'}</button><button class="btn small" data-action="practice-drug" data-id="${d.id}">Practice this drug ${ic('arrow','sm')}</button><button class="btn soft small" data-action="attend-drug" data-id="${d.id}">${ic('stethoscope','sm')} Attending drill</button>${d.custom?`<button class="btn ghost small" data-action="edit-drug" data-id="${d.id}">Edit my drug</button>`:''}</div>
  ${d.custom?`<div class="callout warn" style="margin-bottom:14px">${ic('info','sm')} User-supplied, unreviewed study information. Custom dosing notes are reference-only and do not generate dosing quiz items.</div>`:''}${d.tag?`<div class="callout warn" style="margin-bottom:14px">${ic('info','sm')} ${esc(d.tag)}</div>`:''}
  <div class="profile-deep">${deepDiveHtml({deepDive:{mechanism:pathwayFor(d),clinical:`Key monitored risks: ${p.adverse||'Review the profile.'} Main precautions: ${p.caution||'Review current labeling.'}`,naming:namingExplanation(d)}})}</div><div class="detail-grid"><div class="detail-field"><div class="label">Classification</div><p>${esc(p.name)}</p></div>${fields.map(([k,val])=>`<div class="detail-field"><div class="label">${esc(k)}</div><p>${highlightTerms(val||'Not entered for this class.')}</p></div>`).join('')}<div class="detail-field"><div class="label">Dosing & administration</div><p>${d.custom&&d.details?.dosing?esc(d.details.dosing):'Indication-, patient-, formulation- and route-specific. Use source-linked dosing cases when available and consult current labeling for prescriptions.'}</p></div></div>
  <div class="setting-block"><h3>Personal learning note</h3><p>Save a reminder about what you want to learn. Do not include any protected patient information.</p><textarea id="note-input" class="form-textarea" maxlength="3000" placeholder="E.g., I want to review why this medication is held before surgery…">${esc(state.notes[d.id]||'')}</textarea><div style="margin-top:9px"><button class="btn small" data-action="save-note" data-id="${d.id}">Save note</button></div></div>
@@ -508,7 +609,7 @@ function renderImportModal(){if(!importCandidate)return '';const count=importCan
  <p class="small subtle">Backup exported ${esc(importCandidate.exportedAt?new Date(importCandidate.exportedAt).toLocaleString():'on an unknown date')}. Contains <b>${count}</b> answers, <b>${Object.keys(importCandidate.payload.reviews||{}).length}</b> review records and <b>${(importCandidate.payload.bookmarks||[]).length}</b> bookmarks, plus <b>${(importCandidate.payload.customDrugs||[]).length}</b> custom drugs.</p>
  <div class="stack"><button class="btn full" data-action="confirm-import" data-mode="merge">${ic('layers','sm')} Merge with this device's progress</button><button class="btn ghost full" data-action="confirm-import" data-mode="replace">${ic('rotate','sm')} Replace this device's progress</button><button class="btn ghost full" data-action="close-import">Cancel</button></div><p class="fineprint" style="margin-top:14px">Merge combines unique answer records and keeps newer review states; it cannot perfectly reconcile intervals computed independently on different devices. Replace overwrites all local progress. Export a backup first if needed.</p></div></div>`;
 }
-function render(){const pages={dashboard:renderDashboard,practice:renderPractice,session:renderSession,results:renderResults,library:renderLibrary,review:renderReview,analytics:renderAnalytics,settings:renderSettings};
+function render(){const pages={dashboard:renderDashboard,practice:renderPractice,attending:renderAttending,session:renderSession,results:renderResults,library:renderLibrary,review:renderReview,analytics:renderAnalytics,settings:renderSettings};
  $('#app').innerHTML=shell((pages[view]||renderDashboard)());document.title=`${({dashboard:'Overview',practice:'Quiz builder',session:'Quiz',results:'Results',library:'Drug library',review:'Reviews',analytics:'Progress',settings:'Settings'})[view]||'PharmCore'} · PharmCore`;}
 function go(page){view=page;sidebarOpen=false;render();window.scrollTo({top:0,behavior:'instant'});}
 function resetConfigToRotation(){config.specialties=[state.prefs.rotation];}
@@ -517,11 +618,12 @@ function startConfiguredQuiz(){const questions=selectQuestions(config);launchQue
 function startQuickQuiz(){config.specialties=[state.prefs.rotation];config.tiers=[1];config.categories=['classification','mechanism','indications','contraindications','adverse','interactions','monitoring','pharmacokinetics','populations','toxicity','clinical'];config.mode='mixed';config.length=10;config.exam=false;startConfiguredQuiz();}
 function startDueReviews(){let dueKeys=Object.keys(state.reviews).filter(k=>state.reviews[k].due<=now());if(reviewFilter!=='all')dueKeys=dueKeys.filter(k=>findDrug(k.split('|')[0])?.specialties.includes(reviewFilter));const qs=dueKeys.map(key=>QUESTIONS.find(q=>`${q.drugId}|${q.category}`===key)).filter(Boolean);launchQuestions(shuffleSeeded(qs,`review-${now()}`).slice(0,40).map(q=>q.id),{review:true});}
 function startDrugQuiz(id){const qs=QUESTIONS.filter(q=>q.drugId===id&&q.type==='rapid');launchQuestions(shuffleSeeded(qs,id).map(q=>q.id),{});selectedDrug=null;}
-function pickAnswer(index){const sess=state.session;if(!sess||sess.ended||sess.answers[sess.idx])return;const q=qIndex[sess.qids[sess.idx]],chosen=q.options[index];if(!chosen)return;const attemptId=saveAttempt(q,index,chosen.correct);sess.answers[sess.idx]={chosen:index,correct:chosen.correct,attemptId,confidence:null};persist();render();}
+function pickAnswer(index){const sess=state.session;if(!sess||sess.ended||sess.answers[sess.idx])return;const q=qIndex[sess.qids[sess.idx]],chosen=q.options[index];if(!chosen)return;const attemptId=saveAttempt(q,index,chosen.correct);sess.answers[sess.idx]={chosen:index,correct:chosen.correct,attemptId,confidence:null};if(sess.attending&&!chosen.correct){sess.stopped=true;sess.ended=true;sess.answers[sess.idx].confidence='again';applyReview(q,'again',false);}persist();render();}
 function recordConfidence(c){const sess=state.session,ans=sess?.answers[sess.idx];if(!ans||sess.exam)return;if(ans.confidence){toast('Confidence is already recorded for this question.');return;}
  ans.confidence=c;applyReview(qIndex[sess.qids[sess.idx]],c,ans.correct);render();}
 function advanceQuestion(){const sess=state.session,ans=sess?.answers[sess.idx];if(!ans)return;const q=qIndex[sess.qids[sess.idx]];
  if(!ans.confidence){const c=ans.correct?'good':'again';ans.confidence=c;applyReview(q,c,ans.correct);}
+ if(sess.attending&&!ans.correct){sess.stopped=true;sess.ended=true;persist();render();return;}
  sess.idx++;if(sess.idx>=sess.qids.length){sess.ended=true;view='results';}persist();render();window.scrollTo({top:0,behavior:'instant'});}
 function exportData(){const payload={app:'PharmCore',schema:2,exportedAt:new Date().toISOString(),appVersion:PHARMCORE_VERSION,payload:{...state,session:null}};const b=new Blob([JSON.stringify(payload,null,2)],{type:'application/json'}),url=URL.createObjectURL(b);const a=document.createElement('a');a.href=url;a.download=`pharmcore-progress-${today()}.json`;document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),15000);toast('Backup file downloaded. Keep it somewhere safe.');}
 function validImported(p){if(!p||p.app!=='PharmCore'||![1,2].includes(p.schema)||!p.payload)return false;const s=p.payload;return Array.isArray(s.attempts)&&Array.isArray(s.bookmarks)&&s.reviews&&typeof s.reviews==='object'&&s.notes&&typeof s.notes==='object'&&s.encounters&&typeof s.encounters==='object';}
@@ -556,6 +658,8 @@ function handleAction(action,btn){const id=btn.dataset.id;
   case 'bookmark':{if(state.bookmarks.includes(id))state.bookmarks=state.bookmarks.filter(x=>x!==id);else state.bookmarks.push(id);persist();render();return;}
   case 'encounter':{if(state.encounters[id])delete state.encounters[id];else state.encounters[id]={ts:now(),specialty:state.prefs.rotation};persist();render();return;}
   case 'practice-drug':selectedDrug=null;startDrugQuiz(id);return;
+  case 'attend-drug':startAttending(id);return;
+  case 'attend-results':view='results';render();return;
   case 'save-note':{const note=$('#note-input')?.value?.trim().slice(0,3000)||'';if(note)state.notes[id]=note;else delete state.notes[id];persist();toast('Personal learning note saved on this device.');return;}
   case 'toggle-bookmarks':libraryFilter.saved=!libraryFilter.saved;render();return;
   case 'toggle-custom':libraryFilter.custom=!libraryFilter.custom;render();return;
@@ -588,6 +692,7 @@ document.addEventListener('change',e=>{
  if(t.id==='rotation-select'){state.prefs.rotation=t.value;config.specialties=[t.value];persist();render();return;}
  if(t.dataset.configGroup){const group=t.dataset.configGroup,val=group==='tiers'?Number(t.value):t.value;config[group]=t.checked?[...new Set([...config[group],val])]:config[group].filter(x=>x!==val);render();return;}
  if(t.name==='quiz-mode'){config.mode=t.value;render();return;}
+ if(t.id==='attending-filter'){attendingFilter=t.value;render();return;}
  if(t.id==='library-specialty'){libraryFilter.specialty=t.value;refreshLibraryGrid();return;}
  if(t.id==='library-tier'){libraryFilter.tier=t.value;refreshLibraryGrid();return;}
  if(t.id==='review-specialty'){reviewFilter=t.value;render();return;}
@@ -595,7 +700,7 @@ document.addEventListener('change',e=>{
  if(t.id==='editor-class'){const el=$('#editor-new-class');if(el)el.hidden=t.value!=='__new__';return;}
 });
 document.addEventListener('submit',e=>{if(e.target?.id==='drug-editor-form'){e.preventDefault();saveCustomDrug(new FormData(e.target));}});
-document.addEventListener('input',e=>{if(e.target.id==='drug-search'){libraryFilter.search=e.target.value;refreshLibraryGrid();}});
+document.addEventListener('input',e=>{if(e.target.id==='drug-search'){libraryFilter.search=e.target.value;refreshLibraryGrid();}if(e.target.id==='attending-search'){attendingSearch=e.target.value;refreshAttendingDrugList();}});
 document.addEventListener('keydown',e=>{
  if(e.key==='Escape'){if(selectedTerm){selectedTerm=null;render();}else if(importCandidate){importCandidate=null;render();}else if(drugEditor!==null){drugEditor=null;render();}else if(selectedDrug){selectedDrug=null;render();}return;}
  const active=document.activeElement;if(['INPUT','TEXTAREA','SELECT'].includes(active?.tagName))return;
@@ -605,7 +710,8 @@ document.addEventListener('keydown',e=>{
  await storage.init();const loaded=await storage.load();if(loaded&&typeof loaded==='object'&&Array.isArray(loaded.attempts)&&loaded.reviews&&loaded.prefs){state={...defaultState(),...loaded,prefs:{...defaultState().prefs,...loaded.prefs}};}
  rebuildCatalog();generateQuestions();
  config.specialties=[state.prefs.rotation];
- if(state.session&&Array.isArray(state.session.qids)&&state.session.qids.length&&state.session.qids.every(id=>qIndex[id]))view=state.session.ended?'results':'session';
+ if(state.session?.attending&&state.session.drugId)createAttendingSequence(state.session.drugId);
+ if(state.session&&Array.isArray(state.session.qids)&&state.session.qids.length&&state.session.qids.every(id=>qIndex[id]))view=state.session.stopped?'session':state.session.ended?'results':'session';
  render();
  if('serviceWorker'in navigator&&location.protocol!=='file:')navigator.serviceWorker.register('./service-worker.js').catch(e=>console.warn('Offline cache unavailable',e));
 })();

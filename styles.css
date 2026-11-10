@@ -41,3 +41,19 @@
 .explain-item span{line-height:1.65}
 .explain-item{align-items:flex-start}
 @media(max-width:600px){.deep-dive{padding:12px 14px}.deep-row p,.explain-item span{font-size:13px}.term-link{min-height:22px}}
+
+/* v1.3 attending drill */
+.attending-promo {display:flex;align-items:center;justify-content:space-between;gap:20px;margin-bottom:20px;background:linear-gradient(110deg,#f0f8ff,#f3fbf6);border-color:#b8d8d2}
+.attending-promo h2{margin:6px 0;font-size:18px}
+.attending-promo p{margin:0;line-height:1.5;max-width:650px}
+.attending-promo .btn{flex-shrink:0}
+.attending-guide{display:flex;align-items:flex-start;gap:20px;margin-bottom:20px;background:linear-gradient(110deg,#f0f8ff,#f9fcfb)}
+.attending-guide h2{margin:0 0 8px}
+.attending-guide p{margin:6px 0;color:#536779;line-height:1.55}
+.guide-number{font-size:30px;font-weight:800;color:#0f766e;border:1px solid #bedbd7;border-radius:12px;padding:10px}
+.attending-drug-row{display:flex;align-items:center;justify-content:space-between;gap:14px;padding:13px 4px;border-bottom:1px solid #e9edf0}
+.attending-drug-info{display:flex;flex-direction:column;gap:4px;min-width:0}
+.attending-drug-info strong{color:#173c4f}
+.attending-stop{max-width:970px;margin:auto}
+.attending-stop h2{line-height:1.55}
+@media(max-width:750px){.attending-promo{flex-direction:column;align-items:stretch}.attending-promo .btn{width:100%;justify-content:center}.attending-drug-row{flex-wrap:wrap}.attending-guide{gap:12px}.guide-number{font-size:21px}.attending-stop{padding:18px}}
