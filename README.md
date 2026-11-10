@@ -1,8 +1,47 @@
-# PharmCore 1.3 — No-Giveaway Quizzes, Drug Name Stems & Attending Drills
+# PharmCore 1.4 — More Challenging Distractors & Quiz Drug-List Imports
 
 PharmCore is a static progressive web app (PWA) for clinical pharmacology learning. The same site works in a desktop browser and on an iPhone home screen. There are **no user accounts, cloud databases, servers receiving quiz history, subscriptions, or automatic cross-device synchronization**.
 
 **Learning data is stored in your local browser on each device.** Use **Data & settings → Export my progress** and **Import a progress backup** to move it manually between devices.
+
+## New in v1.4 — better answer choices and imported study lists
+
+**Plausible distractors.** The question builder now prioritizes alternatives drawn from nearby **real** pharmacologic classes, receptor targets, and clinical families rather than uniformly random medical facts. For example, an amlodipine question can contrast a dihydropyridine calcium-channel blocker with a non-dihydropyridine, an ARB, or a direct vasodilator. An anti-CD20 question may contrast other B-cell biologics. The generator also tries to avoid duplicated or obviously overlapping clinical-side-effect lists. These checks are programmatic, not a medical-editor sign-off on every choice; some class-based generated items can still be ambiguous and should be interpreted as study prompts, not definitive clinical advice.
+
+**Import a list for a targeted quiz:** Open **Quiz builder → Import JSON**. Both formats below work:
+
+Simple names:
+
+```json
+["Metformin", "Apixaban", "Adalimumab", "Pembrolizumab"]
+```
+
+An optional richer object format:
+
+```json
+{
+  "drugs": [
+    "Amlodipine",
+    {
+      "name": "New medication name",
+      "class": "Drug class from a trusted reference",
+      "indications": ["Verified indication"],
+      "mechanism": "Verified target and downstream biochemical effect",
+      "specialties": ["im-op", "im-ip"],
+      "tier": 2,
+      "referenceUrl": "https://dailymed.nlm.nih.gov/dailymed/"
+    }
+  ]
+}
+```
+
+- JSON accepts an array or an object with a `drugs` (or `medications`) array. Limit 500 distinct names or 2 MB. A starter file `quiz-drug-list-example.json` is included.
+- Import preview shows matched drugs, new drugs, and new entries that need pharmacology details. Confirming saves **new custom entries** to this device's local library and activates **Imported list only** mode in Quiz Builder. *Existing* drugs are never overwritten.
+- **Important:** Imported-list mode uses only those medications, overriding Specialty and Tier filters. It still respects your selected question format, learning dimensions, prioritization and length. Where possible, the quiz includes one question for each eligible imported drug before repeating drugs; choose *All* to include all eligible questions. If the list has more eligible drugs than the quiz length, it can cover only a subset in that session.
+- A new **name-only** entry is deliberately marked **Needs details**. It is added to your library and selected for the quiz, but it cannot produce evidence-based pharmacology questions until you edit it in **Drug library** to add at least a drug class. A rich JSON object that provides a class (and optionally mechanisms/indications) can generate appropriate class-based questions immediately. User-supplied facts are **not independently verified**, and dosing questions are never automatically invented from user notes.
+- The active list is kept on that device through reloads and is included in your progress JSON backup for transferring to your other device. Use **Clear list** to return to normal rotation filters. Importing a drug list is distinct from **Settings → Import a progress backup**.
+
+**Upgrading:** Export your v1.3 progress first. Replace the existing GitHub Pages repository's application files with this release's files without changing the published URL. Your local data should remain at the same origin; export/import your JSON backup if necessary. Each device stores progress separately.
 
 ## What is included
 
