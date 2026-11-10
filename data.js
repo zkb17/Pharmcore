@@ -1,5 +1,5 @@
 /* PharmCore educational seed: class-level teaching summaries, not a clinical prescribing reference. */
-const PHARMCORE_VERSION = '1.0.0';
+const PHARMCORE_VERSION = '1.2.0';
 const SPECIALTIES = [
   ['family','Family Medicine'],['peds','Pediatrics'],['gen-surg','General Surgery'],
   ['surg-spec','Surgical Specialties'],['psych','Psychiatry'],

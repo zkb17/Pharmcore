@@ -8,3 +8,36 @@
 @media(max-width:850px){.shell{grid-template-columns:1fr}.sidebar{display:none;position:fixed;width:min(300px,85vw);height:100dvh;box-shadow:10px 0 45px rgba(0,0,0,.25)}.sidebar.open{display:flex}.mobile-toggle{display:grid;border:0;background:#f0f5f6;border-radius:8px;width:34px;height:34px;place-items:center}.topbar{height:66px;padding:0 20px}.main-content{padding:25px 20px 95px}.top-actions .search-top{display:none}.config-columns{grid-template-columns:1fr}.grid.three{grid-template-columns:repeat(2,minmax(0,1fr))}.page-head{margin-bottom:20px}}
 @media(max-width:600px){body{font-size:13px}.main-content{padding:22px 15px 88px}.topbar{padding:0 15px}.crumb{font-size:12px}.top-due{font-size:11px}.grid.four{grid-template-columns:repeat(2,minmax(0,1fr));gap:9px}.grid.three,.grid.two{grid-template-columns:1fr;gap:12px}.card{padding:17px}.metric{padding:14px}.metric .value{font-size:26px}.metric .foot{font-size:10px;min-height:30px}.hero{padding:24px;gap:5px}.hero h2{font-size:24px}.hero p{font-size:12px}.hero-art{display:none}.page-head{display:block}.page-actions{margin-top:15px}.drug-grid{grid-template-columns:1fr}.checkgrid{grid-template-columns:repeat(2,minmax(0,1fr));gap:6px}.checklabel{padding:10px 8px;font-size:11px}.question-card{padding:21px}.question-title{font-size:18px}.option{padding:12px 10px;font-size:12px}.progressrow{grid-template-columns:98px 1fr 36px;gap:7px}.progressrow .name{font-size:11px}.detail-grid{grid-template-columns:1fr}.modal{padding:18px;max-height:95dvh}.rotations-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.toolbar{align-items:stretch}.toolbar select{flex:1}.quiz-bottom{flex-wrap:wrap}.result-big{font-size:44px}}
 @media(max-width:370px){.top-due{display:none}.grid.four{grid-template-columns:1fr 1fr}.checkgrid{grid-template-columns:1fr}.rotations-grid{grid-template-columns:1fr}}
+/* v1.1: personal medication editor */
+.editor-modal{max-width:900px}
+.editor-form{display:grid;gap:15px;margin-top:17px}
+.editor-row{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:15px;align-items:start}
+.editor-label{display:flex;flex-direction:column;gap:7px;color:#244454;font-size:12px;font-weight:730;min-width:0}
+.editor-label span{color:#b44e46}.editor-label small{font-weight:400;color:#78909c;font-size:11px}
+.editor-label input:not([type="checkbox"]),.editor-label select,.editor-label textarea{width:100%;border:1px solid #cfdee3;border-radius:10px;background:white;color:#1e3c4c;padding:11px 12px;font-size:13px;font-weight:400;line-height:1.5}
+.editor-label textarea{resize:vertical;min-height:76px}
+.editor-specialties{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:6px;margin-top:5px}
+.editor-specialties label{display:flex;align-items:center;gap:6px;font-size:12px;font-weight:480;padding:7px;border-radius:8px;background:#f5f9f9}
+.editor-specialties input{accent-color:var(--teal)}
+.editor-divider{padding-top:13px;border-top:1px solid #e6edf0}.editor-divider h3{margin:0 0 4px}
+.editor-divider p{margin:0}
+.editor-actions{border-top:1px solid #e5ecef;padding-top:18px;display:flex;gap:10px;flex-wrap:wrap;align-items:center}
+.editor-actions .btn.danger{margin-left:auto}
+@media(max-width:650px){.editor-row{grid-template-columns:1fr}.editor-specialties{grid-template-columns:repeat(2,minmax(0,1fr))}.editor-actions .btn.danger{margin-left:0}}
+
+/* v1.2: expanded target/pathway rationales and tap-friendly medical terminology */
+.deep-dive{margin:16px 0 18px;padding:17px 19px;border:1px solid #cbdfe7;background:#f3f9fc;border-radius:13px;color:#173a4d}
+.deep-title{display:flex;align-items:center;gap:8px;font-size:14px;font-weight:800;margin:0 0 10px;color:#115c70}
+.deep-row{padding:10px 0;border-top:1px solid #e0eaf0}
+.deep-row strong{display:block;font-size:12px;text-transform:uppercase;letter-spacing:.035em;margin-bottom:5px;color:#456072}
+.deep-row p{margin:0;font-size:14px;line-height:1.6}
+.glossary-caption{font-size:11px;color:#4b6676;border-top:1px solid #e0eaf0;padding-top:9px}
+.term-link{border:0;border-bottom:1.5px dotted #118898;padding:0 1px;background:rgba(0,143,155,.055);color:inherit;font:inherit;text-align:inherit;cursor:pointer;display:inline;border-radius:2px;line-height:inherit;white-space:normal}
+.term-link:hover,.term-link:focus-visible{background:#d7eeec;color:#065664;outline:2px solid transparent}
+.term-modal{max-width:520px}
+.term-modal > p{font-size:15px;line-height:1.65;margin-bottom:14px}
+.profile-deep{padding:0;border:0;background:transparent;margin:10px 0}
+.profile-deep .deep-dive{margin:0}
+.explain-item span{line-height:1.65}
+.explain-item{align-items:flex-start}
+@media(max-width:600px){.deep-dive{padding:12px 14px}.deep-row p,.explain-item span{font-size:13px}.term-link{min-height:22px}}
